@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes:
+      - db_data:/var/lib/postgresql/data
+  app:
+    image: user-management-api:latest
+    environment:
+      ENVIRONMENT: prod
+      DB_USER: app
+      DB_PASSWORD: app
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: app
+      JWT_SECRET: change-me
+      OLLAMA_BASE_URL: http://ollama.default.svc.cluster.local:11434
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+volumes:
+  db_data:

@@ -1,0 +1,43 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports:
+      - "${DB_PORT_HOST:-5432}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ENVIRONMENT: local
+      DB_USER: app
+      DB_PASSWORD: app
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: app
+      JWT_SECRET: dev-secret
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+  frontend:
+    working_dir: /app/frontend
+    image: node:20
+    command: sh -lc "npm i && npm run dev -- --host 0.0.0.0 --port ${FRONTEND_PORT:-5173}"
+    volumes:
+      - ./:/app
+    environment:
+      VITE_API_BASE: ${VITE_API_BASE:-http://localhost:8080}
+      FRONTEND_PORT: ${FRONTEND_PORT:-5173}
+    ports:
+      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
+    depends_on:
+      - app
+volumes:
+  db_data:
