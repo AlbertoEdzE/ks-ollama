@@ -34,6 +34,7 @@ export default function App() {
       return
     }
     try {
+      console.info('ui.login.submit', { username })
       const accessToken = await login(username, password)
       setToken(accessToken)
       setLoginError('')
@@ -41,6 +42,7 @@ export default function App() {
     } catch (error: any) {
       setToken(null)
       setLoginError(error.message || 'Login failed')
+      console.error('ui.login.error', { username, error: String(error && error.message ? error.message : error) })
     }
   }
   const handleCreateUser = async (event: React.FormEvent) => {
@@ -190,8 +192,9 @@ export default function App() {
           <h2 className="text-lg font-medium mb-2">Sign in</h2>
           <form onSubmit={handleLogin} className="space-y-3">
             <div className="flex flex-col">
-              <label className="text-sm mb-1">Username</label>
+              <label className="text-sm mb-1" htmlFor="login-username">Username</label>
               <input
+                id="login-username"
                 className="border rounded px-3 py-2"
                 type="text"
                 value={username}
@@ -200,8 +203,9 @@ export default function App() {
               />
             </div>
             <div className="flex flex-col">
-              <label className="text-sm mb-1">Password</label>
+              <label className="text-sm mb-1" htmlFor="login-password">Password</label>
               <input
+                id="login-password"
                 className="border rounded px-3 py-2"
                 type="password"
                 value={password}

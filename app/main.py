@@ -1,6 +1,7 @@
 import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from prometheus_fastapi_instrumentator import Instrumentator
 from app.api.routes import users, credentials, auth
 from app.api.routes import audit as audit_routes
@@ -8,12 +9,13 @@ from app.api.routes import ollama as ollama_routes
 
 logger = structlog.get_logger()
 
-app = FastAPI(title="User Management API", version="1.0.0")
+app = FastAPI(title="User Management API", version="1.0.0", openapi_version="3.0.2")
 Instrumentator().instrument(app).expose(app)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,3 +59,14 @@ app.include_router(credentials.router, prefix="/credentials", tags=["credentials
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(audit_routes.router, prefix="/audit", tags=["audit"])
 app.include_router(ollama_routes.router, prefix="/ollama", tags=["ollama"])
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+    schema["openapi"] = "3.0.2"
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+setattr(app, "openapi", custom_openapi)

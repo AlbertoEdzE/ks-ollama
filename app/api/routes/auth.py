@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
+import logging
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.services.auth import create_jwt, authenticate_credentials, log_auth_event, verify_jwt
@@ -6,6 +7,7 @@ from app.services.rate_limit import RateLimiter
 from app.domain.schemas import LoginRequest, LoginResponse, LogoutResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 login_rate_limiter = RateLimiter()
 
@@ -14,21 +16,26 @@ login_rate_limiter = RateLimiter()
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
+    trace_id = request.headers.get("x-trace-id")
+    logger.info("auth.login.attempt", extra={"username": payload.username, "ip": client_ip, "ua": user_agent, "trace": trace_id})
     key = f"login:{client_ip or payload.username}"
     allowed, _, _ = login_rate_limiter.allow(key)
     if not allowed:
         log_auth_event(db, None, None, "login_rate_limited", client_ip, user_agent, "too many attempts")
         db.commit()
+        logger.warning("auth.login.rate_limited", extra={"username": payload.username, "ip": client_ip, "trace": trace_id})
         raise HTTPException(status_code=429, detail="Too many login attempts, try again later")
     user = authenticate_credentials(db, payload.username, payload.password)
     if user is None:
         log_auth_event(db, None, None, "login_failed", client_ip, user_agent, "invalid credentials")
         db.commit()
+        logger.info("auth.login.failed", extra={"username": payload.username, "ip": client_ip, "trace": trace_id})
         raise HTTPException(status_code=401, detail="Invalid username or password")
     roles = [r.name for r in user.roles]
     token = create_jwt(str(user.id), roles)
     log_auth_event(db, user.id, None, "login_success", client_ip, user_agent, None)
     db.commit()
+    logger.info("auth.login.success", extra={"user_id": user.id, "ip": client_ip, "trace": trace_id})
     return {"access_token": token, "token_type": "bearer"}
 
 

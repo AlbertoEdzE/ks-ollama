@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_serializer
+from pydantic import BaseModel, EmailStr, field_serializer, field_validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -25,6 +25,14 @@ class UserOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def normalize_roles(cls, v):
+        try:
+            return [getattr(r, "name", r) for r in v]
+        except Exception:
+            return v
 
     @field_serializer("roles")
     def serialize_roles(self, roles):

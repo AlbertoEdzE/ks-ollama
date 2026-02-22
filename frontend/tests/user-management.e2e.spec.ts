@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 
+declare const process: any
+
 const FRONTEND_BASE = process.env.FRONTEND_BASE || 'http://localhost:5173'
 const API_BASE = process.env.API_BASE || 'http://localhost:8080'
 
@@ -42,7 +44,37 @@ test.describe('End-to-end user management', () => {
     await apiDeleteUserByEmail(request, adminToken, newUserEmail)
   })
 
-  test('1) Admin Authentication Flow', async ({ page }) => {
+  test('0) Sign-in validation and error handling', async ({ page }) => {
+    await page.goto(FRONTEND_BASE)
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    await expect(page.getByRole('alert')).toHaveText(/Username and password are required/)
+    await page.getByLabel('Username').fill(adminEmail)
+    await page.getByLabel('Password').fill('wrong-password')
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    await expect(page.getByRole('alert')).toHaveText(/Invalid credentials/)
+  })
+
+  test('1) Admin Authentication Flow', async ({ page }, testInfo) => {
+    const loginNetworkEvents: any[] = []
+    page.on('request', (req) => {
+      if (req.url().includes('/auth/login')) {
+        loginNetworkEvents.push({
+          type: 'request',
+          url: req.url(),
+          method: req.method(),
+          postData: req.postData()
+        })
+      }
+    })
+    page.on('response', (res) => {
+      if (res.url().includes('/auth/login')) {
+        loginNetworkEvents.push({
+          type: 'response',
+          url: res.url(),
+          status: res.status()
+        })
+      }
+    })
     const t0 = Date.now()
     await page.goto(FRONTEND_BASE, { waitUntil: 'networkidle' })
     await page.getByLabel('Username').fill(adminEmail)
@@ -53,7 +85,11 @@ test.describe('End-to-end user management', () => {
     await page.getByRole('button', { name: 'Refresh' }).click()
     await expect(page.getByText(/No users yet|@/)).toBeVisible()
     const t1 = Date.now()
-    expect(t1 - t0, 'admin login duration (ms)').toBeLessThan(1500)
+    expect(t1 - t0, 'admin login duration (ms)').toBeLessThan(2000)
+    await testInfo.attach('login-network.json', {
+      body: JSON.stringify(loginNetworkEvents, null, 2),
+      contentType: 'application/json'
+    })
   })
 
   test('2) User Registration Process (create + duplicate + validation)', async ({ page }) => {

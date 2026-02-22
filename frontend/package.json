@@ -9,7 +9,8 @@
     "preview": "vite preview --port 5173",
     "test": "vitest run",
     "test:ui": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:admin": "node scripts/admin-login-e2e.mjs"
   },
   "dependencies": {
     "react": "18.2.0",
@@ -17,18 +18,19 @@
   },
   "devDependencies": {
     "@playwright/test": "1.43.1",
-    "@vitejs/plugin-react": "4.2.0",
     "@testing-library/jest-dom": "6.4.8",
     "@testing-library/react": "14.2.1",
     "@types/node": "20.11.30",
     "@types/react": "18.2.73",
     "@types/react-dom": "18.2.19",
+    "@vitejs/plugin-react": "4.2.0",
+    "autoprefixer": "10.4.20",
     "axe-core": "4.8.2",
     "jest-axe": "7.0.0",
+    "jsdom": "^28.1.0",
     "playwright": "1.43.1",
-    "tailwindcss": "3.4.10",
     "postcss": "8.4.41",
-    "autoprefixer": "10.4.20",
+    "tailwindcss": "3.4.10",
     "typescript": "5.4.5",
     "vite": "5.1.6",
     "vitest": "1.5.2"

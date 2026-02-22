@@ -9,4 +9,3 @@ black==24.10.0
 isort==5.13.2
 mypy==1.11.2
 locust==2.31.6
-trivy==0.54.0

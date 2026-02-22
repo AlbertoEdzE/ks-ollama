@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
+declare const process: any
+
+const useExternalServer = !!process.env.USE_EXTERNAL_SERVER
+
 export default defineConfig({
   testDir: './tests',
   use: {
@@ -13,9 +17,11 @@ export default defineConfig({
     { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
     { name: 'webkit', use: { ...devices['Desktop Safari'] } }
   ],
-  webServer: {
-    command: 'npm run build && npm run preview',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI
-  }
+  webServer: useExternalServer
+    ? undefined
+    : {
+        command: 'npm run build && npm run preview',
+        url: 'http://localhost:5173',
+        reuseExistingServer: !process.env.CI
+      }
 })
