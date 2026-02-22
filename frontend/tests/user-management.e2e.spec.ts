@@ -160,8 +160,6 @@ test.describe('End-to-end user management', () => {
       await page.getByRole('button', { name: 'Sign in' }).click()
       await expect(page.getByText('Signed in')).toBeVisible()
     }
-    // Chat
-    await page.getByLabel('Model').first().fill('llama3.2:latest')
     await page.getByLabel('Prompt').fill('Hello')
     const chatRespPromise = page.waitForResponse(r => r.url().includes('/ollama/chat'))
     const t0 = Date.now()
@@ -172,9 +170,7 @@ test.describe('End-to-end user management', () => {
     expect([200, 502]).toContain(resp.status())
     await expect(page.locator('pre')).toBeVisible()
     expect(t1 - t0, 'chat call duration (ms)').toBeLessThan(5000)
-    // Embeddings
     await page.getByText('Embeddings').scrollIntoViewIfNeeded()
-    await page.getByLabel('Model').nth(1).fill('nomic-embed-text')
     await page.getByLabel('Text').fill('hello world')
     const embRespPromise = page.waitForResponse(r => r.url().includes('/ollama/embeddings'))
     await page.getByRole('button', { name: 'Generate' }).click()

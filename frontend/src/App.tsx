@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { healthz, login, createUser, logout, listUsers, setUserPassword, ollamaChat, updateUser, listCredentials, createCredential, revokeCredential, listAudit, ollamaEmbeddings } from './api'
+import { healthz, login, createUser, logout, listUsers, setUserPassword, ollamaChat, updateUser, listCredentials, createCredential, revokeCredential, listAudit, ollamaEmbeddings, listOllamaModels } from './api'
 
 export default function App() {
   const [healthy, setHealthy] = useState<boolean>(false)
@@ -26,6 +26,7 @@ export default function App() {
   const [embModel, setEmbModel] = useState<string>('nomic-embed-text')
   const [embInput, setEmbInput] = useState<string>('hello world')
   const [embSize, setEmbSize] = useState<number>(0)
+  const [ollamaModels, setOllamaModels] = useState<string[]>([])
   useEffect(() => { healthz().then(setHealthy).catch(() => setHealthy(false)) }, [])
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -86,6 +87,33 @@ export default function App() {
     }
   }
   useEffect(() => { if (token) { refreshUsers() } }, [token])
+  useEffect(() => {
+    const loadModels = async () => {
+      if (!token) {
+        setOllamaModels([])
+        return
+      }
+      try {
+        const items = await listOllamaModels(token)
+        setOllamaModels(items)
+        if (items.length > 0) {
+          if (!items.includes(model)) {
+            const preferredChat = items.find(name => !name.toLowerCase().includes('embed')) || items[0]
+            setModel(preferredChat)
+          }
+          if (!items.includes(embModel)) {
+            const preferredEmb = items.find(name => name.toLowerCase().includes('embed')) || items[0]
+            setEmbModel(preferredEmb)
+          }
+        }
+      } catch (e: any) {
+        if (!message) {
+          setMessage(e.message || 'Failed to load Ollama models')
+        }
+      }
+    }
+    loadModels()
+  }, [token])
   useEffect(() => {
     const load = async () => {
       if (!token || !selectedUserId) { setCreds([]); return }
@@ -328,7 +356,15 @@ export default function App() {
               <div className="flex flex-col md:flex-row gap-2">
                 <div className="flex-1">
                   <label className="text-sm mb-1">Model</label>
-                  <input className="border rounded px-3 py-2 w-full" value={model} onChange={e => setModel(e.target.value)} />
+                  {ollamaModels.length > 0 ? (
+                    <select className="border rounded px-3 py-2 w-full" value={model} onChange={e => setModel(e.target.value)}>
+                      {ollamaModels.map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input className="border rounded px-3 py-2 w-full" value={model} onChange={e => setModel(e.target.value)} />
+                  )}
                 </div>
               </div>
               <div className="flex flex-col">
@@ -347,7 +383,15 @@ export default function App() {
               <div className="flex flex-col md:flex-row gap-2">
                 <div className="flex-1">
                   <label className="text-sm mb-1">Model</label>
-                  <input className="border rounded px-3 py-2 w-full" value={embModel} onChange={e => setEmbModel(e.target.value)} />
+                  {ollamaModels.length > 0 ? (
+                    <select className="border rounded px-3 py-2 w-full" value={embModel} onChange={e => setEmbModel(e.target.value)}>
+                      {ollamaModels.map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input className="border rounded px-3 py-2 w-full" value={embModel} onChange={e => setEmbModel(e.target.value)} />
+                  )}
                 </div>
               </div>
               <div className="flex flex-col">

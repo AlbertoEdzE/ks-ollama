@@ -26,6 +26,17 @@ class EmbeddingsResponse(BaseModel):
     embedding: list[float]
 
 
+@router.get("/models", response_model=list[str])
+def list_models(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    user, _ = principal
+    remaining, reset = enforce_rate_limit(user.id)
+    try:
+        client = OllamaClient()
+        return client.list_models()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Ollama error: {e}")
+
+
 @router.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     user, _ = principal

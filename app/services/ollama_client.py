@@ -14,6 +14,22 @@ class OllamaClient:
         except Exception:
             return False
 
+    def list_models(self) -> list[str]:
+        r = self.client.get("/api/tags")
+        r.raise_for_status()
+        data = r.json()
+        raw = data.get("models") or data.get("tags") or []
+        names: list[str] = []
+        for item in raw:
+            name = None
+            if isinstance(item, dict):
+                name = item.get("name") or item.get("model")
+            else:
+                name = str(item)
+            if name:
+                names.append(name)
+        return names
+
     def chat(self, model: str, prompt: str) -> str:
         r = self.client.post("/api/generate", json={"model": model, "prompt": prompt, "stream": False})
         r.raise_for_status()

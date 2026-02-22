@@ -46,6 +46,11 @@ def test_missing_auth_header_returns_401():
     assert r.status_code == 401
 
 
+def test_unauthenticated_ollama_models_returns_401():
+    r = client.get("/ollama/models")
+    assert r.status_code == 401
+
+
 def test_security_headers_present():
     r = client.get("/healthz")
     assert r.status_code == 200

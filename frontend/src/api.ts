@@ -108,6 +108,21 @@ export async function listUsers(token: string, limit = 50, offset = 0): Promise<
   return r.json()
 }
 
+export async function listOllamaModels(token: string): Promise<string[]> {
+  const r = await fetchWithRetry(
+    `${API_BASE}/ollama/models`,
+    { headers: { Authorization: `Bearer ${token}` } },
+    2,
+    300
+  )
+  if (!r.ok) throw new Error(`List models failed: ${r.status}`)
+  const data = await r.json()
+  if (Array.isArray(data)) {
+    return data.map((x) => String(x))
+  }
+  return []
+}
+
 export async function setUserPassword(token: string, userId: number, password: string): Promise<void> {
   const r = await fetchWithRetry(
     `${API_BASE}/users/${userId}/password`,
