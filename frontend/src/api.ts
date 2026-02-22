@@ -147,7 +147,18 @@ export async function ollamaChat(token: string, model: string, prompt: string): 
     2,
     300
   )
-  if (!r.ok) throw new Error(`Chat failed: ${r.status}`)
+  if (!r.ok) {
+    let extra = ''
+    try {
+      const errBody = await r.json()
+      if (errBody && errBody.detail) {
+        extra = ` ${String(errBody.detail)}`
+      }
+    } catch {
+      // ignore body parse errors
+    }
+    throw new Error(`Chat failed: ${r.status}${extra}`)
+  }
   const data = await r.json()
   return data.response as string
 }
@@ -163,7 +174,18 @@ export async function ollamaEmbeddings(token: string, model: string, input: stri
     2,
     300
   )
-  if (!r.ok) throw new Error(`Embeddings failed: ${r.status}`)
+  if (!r.ok) {
+    let extra = ''
+    try {
+      const errBody = await r.json()
+      if (errBody && errBody.detail) {
+        extra = ` ${String(errBody.detail)}`
+      }
+    } catch {
+      // ignore body parse errors
+    }
+    throw new Error(`Embeddings failed: ${r.status}${extra}`)
+  }
   const data = await r.json()
   return data.embedding as number[]
 }

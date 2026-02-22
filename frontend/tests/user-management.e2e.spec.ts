@@ -161,7 +161,7 @@ test.describe('End-to-end user management', () => {
       await expect(page.getByText('Signed in')).toBeVisible()
     }
     // Chat
-    await page.getByLabel('Model').first().fill('llama3.2:1b')
+    await page.getByLabel('Model').first().fill('llama3.2:latest')
     await page.getByLabel('Prompt').fill('Hello')
     const chatRespPromise = page.waitForResponse(r => r.url().includes('/ollama/chat'))
     const t0 = Date.now()
@@ -191,7 +191,7 @@ test.describe('End-to-end user management', () => {
     await page.getByRole('button', { name: 'Sign in' }).click()
     await expect(page.getByRole('alert')).toHaveText(/Invalid credentials|Network error/)
     // Unauthenticated Ollama access
-    const r = await request.post(`${API_BASE}/ollama/chat`, { data: { model: 'llama3.2:1b', prompt: 'hi' } })
+    const r = await request.post(`${API_BASE}/ollama/chat`, { data: { model: 'llama3.2:latest', prompt: 'hi' } })
     expect([401, 403]).toContain(r.status())
   })
 

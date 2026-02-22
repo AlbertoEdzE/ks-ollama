@@ -12,7 +12,7 @@ export default function App() {
   const [users, setUsers] = useState<any[]>([])
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
   const [newPassword, setNewPassword] = useState<string>('')
-  const [model, setModel] = useState<string>('llama3.2:1b')
+  const [model, setModel] = useState<string>('llama3.2:latest')
   const [prompt, setPrompt] = useState<string>('')
   const [chatResponse, setChatResponse] = useState<string>('')
   const [isActive, setIsActive] = useState<boolean>(true)
