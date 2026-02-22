@@ -1,6 +1,53 @@
 import React, { useEffect, useState } from 'react'
 import { healthz, login, createUser, logout, listUsers, setUserPassword, ollamaChat, updateUser, listCredentials, createCredential, revokeCredential, listAudit, ollamaEmbeddings, listOllamaModels } from './api'
 
+type NavTab = {
+  id: string
+  label: string
+  requiresAdmin?: boolean
+}
+
+function SidebarNav(props: { tabs: NavTab[]; activeTab: string; onChange: (id: string) => void }) {
+  const { tabs, activeTab, onChange } = props
+  return (
+    <nav aria-label="Main navigation" className="space-y-1">
+      {tabs.map(tab => (
+        <button
+          key={tab.id}
+          type="button"
+          onClick={() => onChange(tab.id)}
+          className={`w-full text-left px-3 py-2 rounded text-sm ${
+            activeTab === tab.id ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-900'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </nav>
+  )
+}
+
+function decodeJwtPayload(token: string): any | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length < 2) return null
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    const json = atob(padded)
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
+const ALL_TABS: NavTab[] = [
+  { id: 'create-user', label: 'User creation', requiresAdmin: true },
+  { id: 'admin', label: 'Admin panel', requiresAdmin: true },
+  { id: 'chat', label: 'Ollama chat' },
+  { id: 'embeddings', label: 'Embeddings' },
+  { id: 'audit', label: 'Audit log', requiresAdmin: true }
+]
+
 export default function App() {
   const [healthy, setHealthy] = useState<boolean>(false)
   const [username, setUsername] = useState<string>('')
@@ -27,6 +74,9 @@ export default function App() {
   const [embInput, setEmbInput] = useState<string>('hello world')
   const [embSize, setEmbSize] = useState<number>(0)
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
+  const [roles, setRoles] = useState<string[]>([])
+  const [activeTab, setActiveTab] = useState<string>('chat')
+  const isAdmin = roles.includes('admin')
   useEffect(() => { healthz().then(setHealthy).catch(() => setHealthy(false)) }, [])
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -37,11 +87,22 @@ export default function App() {
     try {
       console.info('ui.login.submit', { username })
       const accessToken = await login(username, password)
+      const payload = decodeJwtPayload(accessToken)
+      const parsedRoles = payload && Array.isArray(payload.roles) ? payload.roles.map((r: any) => String(r)) : []
+      setRoles(parsedRoles)
       setToken(accessToken)
       setLoginError('')
       setMessage('')
+      if (parsedRoles.includes('admin')) {
+        setActiveTab('admin')
+        window.location.hash = '#admin'
+      } else {
+        setActiveTab('chat')
+        window.location.hash = '#chat'
+      }
     } catch (error: any) {
       setToken(null)
+      setRoles([])
       setLoginError(error.message || 'Login failed')
       console.error('ui.login.error', { username, error: String(error && error.message ? error.message : error) })
     }
@@ -67,8 +128,11 @@ export default function App() {
   const handleLogout = async () => {
     await logout(token)
     setToken(null)
+    setRoles([])
     setEmail('')
     setMessage('')
+    setActiveTab('chat')
+    window.location.hash = ''
   }
   const refreshUsers = async () => {
     if (!token) return
@@ -114,6 +178,46 @@ export default function App() {
     }
     loadModels()
   }, [token])
+  useEffect(() => {
+    if (!token) {
+      return
+    }
+    const hash = window.location.hash ? window.location.hash.slice(1) : ''
+    const allowed = ALL_TABS.filter(tab => !tab.requiresAdmin || isAdmin)
+    if (hash) {
+      const found = allowed.find(tab => tab.id === hash)
+      if (found) {
+        setActiveTab(found.id)
+        return
+      }
+    }
+    if (!allowed.find(tab => tab.id === activeTab)) {
+      if (allowed[0]) {
+        setActiveTab(allowed[0].id)
+        window.location.hash = '#' + allowed[0].id
+      }
+    }
+  }, [token, isAdmin])
+  useEffect(() => {
+    const handler = () => {
+      if (!token) {
+        return
+      }
+      const id = window.location.hash ? window.location.hash.slice(1) : ''
+      const allowed = ALL_TABS.filter(tab => !tab.requiresAdmin || isAdmin)
+      const match = allowed.find(tab => tab.id === id)
+      if (match) {
+        setActiveTab(match.id)
+      } else if (id) {
+        if (allowed[0]) {
+          setActiveTab(allowed[0].id)
+          window.location.hash = '#' + allowed[0].id
+        }
+      }
+    }
+    window.addEventListener('hashchange', handler)
+    return () => window.removeEventListener('hashchange', handler)
+  }, [token, isAdmin])
   useEffect(() => {
     const load = async () => {
       if (!token || !selectedUserId) { setCreds([]); return }
@@ -207,6 +311,15 @@ export default function App() {
       setChatResponse(`Error: ${e.message}`)
     }
   }
+  const visibleTabs = ALL_TABS.filter(tab => !tab.requiresAdmin || isAdmin)
+  const handleTabChange = (id: string) => {
+    const allowed = visibleTabs.find(tab => tab.id === id)
+    if (!allowed) {
+      return
+    }
+    setActiveTab(id)
+    window.location.hash = '#' + id
+  }
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="border-b bg-white">
@@ -215,237 +328,255 @@ export default function App() {
           <p className="text-sm text-gray-600">Backend status: {healthy ? 'OK' : 'Unavailable'}</p>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl p-4 grid gap-6 md:grid-cols-2">
-        <section className="bg-white rounded-lg shadow p-4">
-          <h2 className="text-lg font-medium mb-2">Sign in</h2>
-          <form onSubmit={handleLogin} className="space-y-3">
-            <div className="flex flex-col">
-              <label className="text-sm mb-1" htmlFor="login-username">Username</label>
-              <input
-                id="login-username"
-                className="border rounded px-3 py-2"
-                type="text"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                autoComplete="username"
-              />
-            </div>
-            <div className="flex flex-col">
-              <label className="text-sm mb-1" htmlFor="login-password">Password</label>
-              <input
-                id="login-password"
-                className="border rounded px-3 py-2"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="current-password"
-              />
-            </div>
-            <button type="submit" className="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-              Sign in
-            </button>
-          </form>
-          {loginError && <div role="alert" className="mt-3 rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2">{loginError}</div>}
-          {token && (
-            <div className="mt-3 flex items-center justify-between">
-              <p className="text-sm">Signed in</p>
-              <button type="button" className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300" onClick={handleLogout}>
-                Sign out
+      <main className="mx-auto max-w-5xl p-4 md:flex md:gap-4">
+        <div className="w-full md:w-64 md:flex-shrink-0 space-y-4">
+          <section className="bg-white rounded-lg shadow p-4">
+            <h2 className="text-lg font-medium mb-2">Sign in</h2>
+            <form onSubmit={handleLogin} className="space-y-3">
+              <div className="flex flex-col">
+                <label className="text-sm mb-1" htmlFor="login-username">Username</label>
+                <input
+                  id="login-username"
+                  className="border rounded px-3 py-2"
+                  type="text"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  autoComplete="username"
+                />
+              </div>
+              <div className="flex flex-col">
+                <label className="text-sm mb-1" htmlFor="login-password">Password</label>
+                <input
+                  id="login-password"
+                  className="border rounded px-3 py-2"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
+              </div>
+              <button type="submit" className="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                Sign in
               </button>
-            </div>
+            </form>
+            {loginError && <div role="alert" className="mt-3 rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2">{loginError}</div>}
+            {token && (
+              <div className="mt-3 flex items-center justify-between">
+                <p className="text-sm">Signed in</p>
+                <button type="button" className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300" onClick={handleLogout}>
+                  Sign out
+                </button>
+              </div>
+            )}
+          </section>
+          {token && visibleTabs.length > 0 && (
+            <section className="bg-white rounded-lg shadow p-4">
+              <h2 className="text-lg font-medium mb-2">Navigation</h2>
+              <SidebarNav tabs={visibleTabs} activeTab={activeTab} onChange={handleTabChange} />
+            </section>
           )}
-        </section>
-        <section className="bg-white rounded-lg shadow p-4">
-          <h2 className="text-lg font-medium mb-2">Create user</h2>
-          <form onSubmit={handleCreateUser} className="space-y-3">
-            <div className="flex flex-col">
-              <label className="text-sm mb-1">Email</label>
-              <input
-                className="border rounded px-3 py-2"
-                placeholder="email@example.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </div>
-            <button type="submit" disabled={!token} className="inline-flex items-center px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
-              Create
-            </button>
-          </form>
-          <div className="text-sm text-gray-700 mt-3">{message}</div>
-        </section>
-        {token && (
-          <section className="bg-white rounded-lg shadow p-4 md:col-span-2">
-            <h2 className="text-lg font-medium mb-2">Admin panel</h2>
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-medium">Users & roles</h3>
-                  <button onClick={refreshUsers} className="text-sm px-3 py-1 rounded bg-gray-100 hover:bg-gray-200">Refresh</button>
+        </div>
+        <div className="mt-4 md:mt-0 flex-1 space-y-4">
+          {token && isAdmin && activeTab === 'create-user' && (
+            <section className="bg-white rounded-lg shadow p-4">
+              <h2 className="text-lg font-medium mb-2">Create user</h2>
+              <form onSubmit={handleCreateUser} className="space-y-3">
+                <div className="flex flex-col">
+                  <label className="text-sm mb-1">Email</label>
+                  <input
+                    className="border rounded px-3 py-2"
+                    placeholder="email@example.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
                 </div>
-                <ul className="divide-y border rounded">
-                  {users.map(u => (
-                    <li key={u.id} className="p-2 flex items-center justify-between">
-                      <div>
-                        <div className="font-medium">{u.email}</div>
-                        <div className="text-xs text-gray-600">id {u.id}</div>
-                      </div>
-                      <button className={`text-sm px-2 py-1 rounded ${selectedUserId===u.id ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`} onClick={() => setSelectedUserId(u.id)}>
-                        {selectedUserId===u.id ? 'Selected' : 'Select'}
-                      </button>
-                    </li>
-                  ))}
-                  {users.length === 0 && <li className="p-2 text-sm text-gray-600">No users yet</li>}
-                </ul>
+                <button type="submit" disabled={!token} className="inline-flex items-center px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+                  Create
+                </button>
+              </form>
+              <div className="text-sm text-gray-700 mt-3">{message}</div>
+            </section>
+          )}
+          {token && isAdmin && activeTab === 'admin' && (
+            <section className="bg-white rounded-lg shadow p-4">
+              <h2 className="text-lg font-medium mb-2">Admin panel</h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-medium">Users & roles</h3>
+                    <button onClick={refreshUsers} className="text-sm px-3 py-1 rounded bg-gray-100 hover:bg-gray-200">Refresh</button>
+                  </div>
+                  <ul className="divide-y border rounded">
+                    {users.map(u => (
+                      <li key={u.id} className="p-2 flex items-center justify-between">
+                        <div>
+                          <div className="font-medium">{u.email}</div>
+                          <div className="text-xs text-gray-600">id {u.id}</div>
+                        </div>
+                        <button className={`text-sm px-2 py-1 rounded ${selectedUserId===u.id ? 'bg-blue-600 text-white' : 'bg-gray-100 hover:bg-gray-200'}`} onClick={() => setSelectedUserId(u.id)}>
+                          {selectedUserId===u.id ? 'Selected' : 'Select'}
+                        </button>
+                      </li>
+                    ))}
+                    {users.length === 0 && <li className="p-2 text-sm text-gray-600">No users yet</li>}
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="font-medium mb-2">Set user password</h3>
+                  <form onSubmit={handleSetPassword} className="space-y-3">
+                    <div className="flex flex-col">
+                      <label className="text-sm mb-1">Selected user id</label>
+                      <input className="border rounded px-3 py-2" value={selectedUserId ?? ''} disabled />
+                    </div>
+                    <div className="flex flex-col">
+                      <label className="text-sm mb-1">New password</label>
+                      <input className="border rounded px-3 py-2" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                    </div>
+                    <button disabled={!selectedUserId || !newPassword} className="inline-flex items-center px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">Update password</button>
+                  </form>
+                  <hr className="my-4" />
+                  <h3 className="font-medium mb-2">User settings</h3>
+                  <form onSubmit={handleUpdateUser} className="space-y-3">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} />
+                      <span>Active</span>
+                    </label>
+                    <div className="flex flex-col">
+                      <label className="text-sm mb-1">Roles (comma-separated)</label>
+                      <input className="border rounded px-3 py-2" value={rolesText} onChange={e => setRolesText(e.target.value)} />
+                    </div>
+                    <button disabled={!selectedUserId} className="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Save settings</button>
+                  </form>
+                  <hr className="my-4" />
+                  <h3 className="font-medium mb-2">Credentials</h3>
+                  <form onSubmit={handleCreateCredential} className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="text-sm mb-1 block">Label</label>
+                      <input className="border rounded px-3 py-2 w-full" value={newCredLabel} onChange={e => setNewCredLabel(e.target.value)} />
+                    </div>
+                    <button disabled={!selectedUserId} className="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700">Issue</button>
+                  </form>
+                  {newCredSecret && <div className="mt-2 text-sm"><span className="font-medium">One-time secret:</span> <code className="bg-gray-100 px-2 py-1 rounded">{newCredSecret}</code></div>}
+                  <ul className="mt-3 divide-y border rounded">
+                    {creds.map(c => (
+                      <li key={c.id} className="p-2 flex items-center justify-between">
+                        <div className="text-sm">
+                          <div>{c.label || 'credential'} · id {c.id}</div>
+                          <div className="text-xs text-gray-600">{c.revoked ? 'revoked' : 'active'}</div>
+                        </div>
+                        {!c.revoked && <button onClick={() => handleRevoke(c.id)} className="text-sm px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700">Revoke</button>}
+                      </li>
+                    ))}
+                    {creds.length === 0 && <li className="p-2 text-sm text-gray-600">No credentials</li>}
+                  </ul>
+                </div>
               </div>
-              <div>
-                <h3 className="font-medium mb-2">Set user password</h3>
-                <form onSubmit={handleSetPassword} className="space-y-3">
-                  <div className="flex flex-col">
-                    <label className="text-sm mb-1">Selected user id</label>
-                    <input className="border rounded px-3 py-2" value={selectedUserId ?? ''} disabled />
-                  </div>
-                  <div className="flex flex-col">
-                    <label className="text-sm mb-1">New password</label>
-                    <input className="border rounded px-3 py-2" type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
-                  </div>
-                  <button disabled={!selectedUserId || !newPassword} className="inline-flex items-center px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50">Update password</button>
-                </form>
-                <hr className="my-4" />
-                <h3 className="font-medium mb-2">User settings</h3>
-                <form onSubmit={handleUpdateUser} className="space-y-3">
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} />
-                    <span>Active</span>
-                  </label>
-                  <div className="flex flex-col">
-                    <label className="text-sm mb-1">Roles (comma-separated)</label>
-                    <input className="border rounded px-3 py-2" value={rolesText} onChange={e => setRolesText(e.target.value)} />
-                  </div>
-                  <button disabled={!selectedUserId} className="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Save settings</button>
-                </form>
-                <hr className="my-4" />
-                <h3 className="font-medium mb-2">Credentials</h3>
-                <form onSubmit={handleCreateCredential} className="flex items-end gap-2">
+            </section>
+          )}
+          {token && activeTab === 'chat' && (
+            <section className="bg-white rounded-lg shadow p-4">
+              <h2 className="text-lg font-medium mb-2">Ollama chat</h2>
+              <form onSubmit={handleChat} className="space-y-3">
+                <div className="flex flex-col md:flex-row gap-2">
                   <div className="flex-1">
-                    <label className="text-sm mb-1 block">Label</label>
-                    <input className="border rounded px-3 py-2 w-full" value={newCredLabel} onChange={e => setNewCredLabel(e.target.value)} />
+                    <label className="text-sm mb-1">Model</label>
+                    {ollamaModels.length > 0 ? (
+                      <select className="border rounded px-3 py-2 w-full" value={model} onChange={e => setModel(e.target.value)}>
+                        {ollamaModels.map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input className="border rounded px-3 py-2 w-full" value={model} onChange={e => setModel(e.target.value)} />
+                    )}
                   </div>
-                  <button disabled={!selectedUserId} className="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700">Issue</button>
-                </form>
-                {newCredSecret && <div className="mt-2 text-sm"><span className="font-medium">One-time secret:</span> <code className="bg-gray-100 px-2 py-1 rounded">{newCredSecret}</code></div>}
-                <ul className="mt-3 divide-y border rounded">
-                  {creds.map(c => (
-                    <li key={c.id} className="p-2 flex items-center justify-between">
-                      <div className="text-sm">
-                        <div>{c.label || 'credential'} · id {c.id}</div>
-                        <div className="text-xs text-gray-600">{c.revoked ? 'revoked' : 'active'}</div>
-                      </div>
-                      {!c.revoked && <button onClick={() => handleRevoke(c.id)} className="text-sm px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700">Revoke</button>}
-                    </li>
-                  ))}
-                  {creds.length === 0 && <li className="p-2 text-sm text-gray-600">No credentials</li>}
-                </ul>
-              </div>
-            </div>
-          </section>
-        )}
-        {token && (
-          <section className="bg-white rounded-lg shadow p-4 md:col-span-2">
-            <h2 className="text-lg font-medium mb-2">Ollama chat</h2>
-            <form onSubmit={handleChat} className="space-y-3">
-              <div className="flex flex-col md:flex-row gap-2">
-                <div className="flex-1">
-                  <label className="text-sm mb-1">Model</label>
-                  {ollamaModels.length > 0 ? (
-                    <select className="border rounded px-3 py-2 w-full" value={model} onChange={e => setModel(e.target.value)}>
-                      {ollamaModels.map(name => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input className="border rounded px-3 py-2 w-full" value={model} onChange={e => setModel(e.target.value)} />
-                  )}
                 </div>
-              </div>
-              <div className="flex flex-col">
-                <label className="text-sm mb-1">Prompt</label>
-                <textarea className="border rounded px-3 py-2 min-h-[100px]" value={prompt} onChange={e => setPrompt(e.target.value)} />
-              </div>
-              <button className="inline-flex items-center px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Send</button>
-            </form>
-            {chatResponse && <pre className="mt-3 whitespace-pre-wrap rounded border bg-gray-50 p-3">{chatResponse}</pre>}
-          </section>
-        )}
-        {token && (
-          <section className="bg-white rounded-lg shadow p-4 md:col-span-2">
-            <h2 className="text-lg font-medium mb-2">Embeddings</h2>
-            <form onSubmit={handleEmbeddings} className="space-y-3">
-              <div className="flex flex-col md:flex-row gap-2">
-                <div className="flex-1">
-                  <label className="text-sm mb-1">Model</label>
-                  {ollamaModels.length > 0 ? (
-                    <select className="border rounded px-3 py-2 w-full" value={embModel} onChange={e => setEmbModel(e.target.value)}>
-                      {ollamaModels.map(name => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input className="border rounded px-3 py-2 w-full" value={embModel} onChange={e => setEmbModel(e.target.value)} />
-                  )}
+                <div className="flex flex-col">
+                  <label className="text-sm mb-1">Prompt</label>
+                  <textarea className="border rounded px-3 py-2 min-h-[100px]" value={prompt} onChange={e => setPrompt(e.target.value)} />
                 </div>
+                <button className="inline-flex items-center px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Send</button>
+              </form>
+              {chatResponse && <pre className="mt-3 whitespace-pre-wrap rounded border bg-gray-50 p-3">{chatResponse}</pre>}
+            </section>
+          )}
+          {token && activeTab === 'embeddings' && (
+            <section className="bg-white rounded-lg shadow p-4">
+              <h2 className="text-lg font-medium mb-2">Embeddings</h2>
+              <form onSubmit={handleEmbeddings} className="space-y-3">
+                <div className="flex flex-col md:flex-row gap-2">
+                  <div className="flex-1">
+                    <label className="text-sm mb-1">Model</label>
+                    {ollamaModels.length > 0 ? (
+                      <select className="border rounded px-3 py-2 w-full" value={embModel} onChange={e => setEmbModel(e.target.value)}>
+                        {ollamaModels.map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input className="border rounded px-3 py-2 w-full" value={embModel} onChange={e => setEmbModel(e.target.value)} />
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-sm mb-1">Text</label>
+                  <textarea className="border rounded px-3 py-2 min-h-[100px]" value={embInput} onChange={e => setEmbInput(e.target.value)} />
+                </div>
+                <button className="inline-flex items-center px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Generate</button>
+              </form>
+              <div className="text-sm mt-2">Vector length: {embSize}</div>
+            </section>
+          )}
+          {token && isAdmin && activeTab === 'audit' && (
+            <section className="bg-white rounded-lg shadow p-4">
+              <h2 className="text-lg font-medium mb-2">Audit log</h2>
+              <div className="flex items-end gap-2">
+                <div>
+                  <label className="text-sm mb-1 block">Limit</label>
+                  <input className="border rounded px-3 py-2 w-24" type="number" min={1} max={500} value={auditLimit} onChange={e => setAuditLimit(parseInt(e.target.value || '0', 10))} />
+                </div>
+                <div className="flex-1">
+                  <label className="text-sm mb-1 block">Filter by event type</label>
+                  <input className="border rounded px-3 py-2 w-full" value={auditFilter} onChange={e => setAuditFilter(e.target.value)} />
+                </div>
+                <button onClick={handleLoadAudit} className="px-3 py-2 rounded bg-gray-900 text-white">Load</button>
               </div>
-              <div className="flex flex-col">
-                <label className="text-sm mb-1">Text</label>
-                <textarea className="border rounded px-3 py-2 min-h-[100px]" value={embInput} onChange={e => setEmbInput(e.target.value)} />
-              </div>
-              <button className="inline-flex items-center px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700">Generate</button>
-            </form>
-            <div className="text-sm mt-2">Vector length: {embSize}</div>
-          </section>
-        )}
-        {token && (
-          <section className="bg-white rounded-lg shadow p-4 md:col-span-2">
-            <h2 className="text-lg font-medium mb-2">Audit log</h2>
-            <div className="flex items-end gap-2">
-              <div>
-                <label className="text-sm mb-1 block">Limit</label>
-                <input className="border rounded px-3 py-2 w-24" type="number" min={1} max={500} value={auditLimit} onChange={e => setAuditLimit(parseInt(e.target.value || '0', 10))} />
-              </div>
-              <div className="flex-1">
-                <label className="text-sm mb-1 block">Filter by event type</label>
-                <input className="border rounded px-3 py-2 w-full" value={auditFilter} onChange={e => setAuditFilter(e.target.value)} />
-              </div>
-              <button onClick={handleLoadAudit} className="px-3 py-2 rounded bg-gray-900 text-white">Load</button>
-            </div>
-            <div className="mt-3 overflow-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="text-left">
-                    <th className="p-2">Time</th>
-                    <th className="p-2">Event</th>
-                    <th className="p-2">User</th>
-                    <th className="p-2">IP</th>
-                    <th className="p-2">Agent</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {audit.map((row: any, idx: number) => (
-                    <tr key={idx} className="border-t">
-                      <td className="p-2">{row.occurred_at}</td>
-                      <td className="p-2">{row.event_type}</td>
-                      <td className="p-2">{row.user_id ?? '-'}</td>
-                      <td className="p-2">{row.ip ?? '-'}</td>
-                      <td className="p-2">{row.user_agent ?? '-'}</td>
+              <div className="mt-3 overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="p-2">Time</th>
+                      <th className="p-2">Event</th>
+                      <th className="p-2">User</th>
+                      <th className="p-2">IP</th>
+                      <th className="p-2">Agent</th>
                     </tr>
-                  ))}
-                  {audit.length === 0 && (
-                    <tr><td className="p-2 text-gray-600" colSpan={5}>No records</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
+                  </thead>
+                  <tbody>
+                    {audit.map((row: any, idx: number) => (
+                      <tr key={idx} className="border-t">
+                        <td className="p-2">{row.occurred_at}</td>
+                        <td className="p-2">{row.event_type}</td>
+                        <td className="p-2">{row.user_id ?? '-'}</td>
+                        <td className="p-2">{row.ip ?? '-'}</td>
+                        <td className="p-2">{row.user_agent ?? '-'}</td>
+                      </tr>
+                    ))}
+                    {audit.length === 0 && (
+                      <tr><td className="p-2 text-gray-600" colSpan={5}>No records</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+          {token && !isAdmin && (activeTab === 'create-user' || activeTab === 'admin' || activeTab === 'audit') && (
+            <section className="bg-white rounded-lg shadow p-4">
+              <h2 className="text-lg font-medium mb-2">Access denied</h2>
+              <p className="text-sm text-gray-700">You are not authorised to access this panel.</p>
+            </section>
+          )}
+        </div>
       </main>
     </div>
   )
