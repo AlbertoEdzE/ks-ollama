@@ -76,6 +76,7 @@ export default function App() {
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
   const [roles, setRoles] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<string>('chat')
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
   const isAdmin = roles.includes('admin')
   useEffect(() => { healthz().then(setHealthy).catch(() => setHealthy(false)) }, [])
   const handleLogin = async (event: React.FormEvent) => {
@@ -91,6 +92,11 @@ export default function App() {
       const parsedRoles = payload && Array.isArray(payload.roles) ? payload.roles.map((r: any) => String(r)) : []
       setRoles(parsedRoles)
       setToken(accessToken)
+      setCurrentUserEmail(username)
+      setUsername('')
+      setPassword('')
+      setPrompt('')
+      setChatResponse('')
       setLoginError('')
       setMessage('')
       if (parsedRoles.includes('admin')) {
@@ -129,6 +135,9 @@ export default function App() {
     await logout(token)
     setToken(null)
     setRoles([])
+    setCurrentUserEmail(null)
+    setUsername('')
+    setPassword('')
     setEmail('')
     setMessage('')
     setActiveTab('chat')
@@ -332,37 +341,43 @@ export default function App() {
         <div className="w-full md:w-64 md:flex-shrink-0 space-y-4">
           <section className="bg-white rounded-lg shadow p-4">
             <h2 className="text-lg font-medium mb-2">Sign in</h2>
-            <form onSubmit={handleLogin} className="space-y-3">
-              <div className="flex flex-col">
-                <label className="text-sm mb-1" htmlFor="login-username">Username</label>
-                <input
-                  id="login-username"
-                  className="border rounded px-3 py-2"
-                  type="text"
-                  value={username}
-                  onChange={(event) => setUsername(event.target.value)}
-                  autoComplete="username"
-                />
-              </div>
-              <div className="flex flex-col">
-                <label className="text-sm mb-1" htmlFor="login-password">Password</label>
-                <input
-                  id="login-password"
-                  className="border rounded px-3 py-2"
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  autoComplete="current-password"
-                />
-              </div>
-              <button type="submit" className="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-                Sign in
-              </button>
-            </form>
-            {loginError && <div role="alert" className="mt-3 rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2">{loginError}</div>}
+            {!token && (
+              <>
+                <form onSubmit={handleLogin} className="space-y-3">
+                  <div className="flex flex-col">
+                    <label className="text-sm mb-1" htmlFor="login-username">Username</label>
+                    <input
+                      id="login-username"
+                      className="border rounded px-3 py-2"
+                      type="text"
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value)}
+                      autoComplete="username"
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-sm mb-1" htmlFor="login-password">Password</label>
+                    <input
+                      id="login-password"
+                      className="border rounded px-3 py-2"
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <button type="submit" className="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                    Sign in
+                  </button>
+                </form>
+                {loginError && <div role="alert" className="mt-3 rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2">{loginError}</div>}
+              </>
+            )}
             {token && (
-              <div className="mt-3 flex items-center justify-between">
-                <p className="text-sm">Signed in</p>
+              <div className="mt-1 flex items-center justify-between">
+                <p className="text-sm">
+                  Signed in{currentUserEmail ? ` as ${currentUserEmail}` : ''}
+                </p>
                 <button type="button" className="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300" onClick={handleLogout}>
                   Sign out
                 </button>
@@ -441,9 +456,38 @@ export default function App() {
                       <input type="checkbox" checked={isActive} onChange={e => setIsActive(e.target.checked)} />
                       <span>Active</span>
                     </label>
-                    <div className="flex flex-col">
-                      <label className="text-sm mb-1">Roles (comma-separated)</label>
-                      <input className="border rounded px-3 py-2" value={rolesText} onChange={e => setRolesText(e.target.value)} />
+                    <div className="flex flex-col gap-2">
+                      <span className="text-sm">Roles</span>
+                      <div className="flex flex-wrap gap-3">
+                        <label className="flex items-center gap-1 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={rolesText.split(',').map(s => s.trim()).filter(Boolean).includes('admin')}
+                            onChange={e => {
+                              const current = rolesText.split(',').map(s => s.trim()).filter(Boolean)
+                              const next = e.target.checked
+                                ? Array.from(new Set([...current.filter(r => r !== 'admin'), 'admin']))
+                                : current.filter(r => r !== 'admin')
+                              setRolesText(next.join(','))
+                            }}
+                          />
+                          <span>admin</span>
+                        </label>
+                        <label className="flex items-center gap-1 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={rolesText.split(',').map(s => s.trim()).filter(Boolean).includes('user')}
+                            onChange={e => {
+                              const current = rolesText.split(',').map(s => s.trim()).filter(Boolean)
+                              const next = e.target.checked
+                                ? Array.from(new Set([...current.filter(r => r !== 'user'), 'user']))
+                                : current.filter(r => r !== 'user')
+                              setRolesText(next.join(','))
+                            }}
+                          />
+                          <span>user</span>
+                        </label>
+                      </div>
                     </div>
                     <button disabled={!selectedUserId} className="inline-flex items-center px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Save settings</button>
                   </form>
