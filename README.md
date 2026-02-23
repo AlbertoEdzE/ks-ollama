@@ -419,58 +419,346 @@ Audit log access is restricted to admin users and should be treated as sensitive
 
 ---
 
-## 6. Docker and Deployment
+## 6. Deployment Guide for DevOps Engineers
 
-### 6.1 Backend image
+This section provides a practical, environment‑agnostic deployment guide aimed at DevOps and SRE teams. It assumes you are deploying:
+- The FastAPI backend (containerised).
+- The React/Vite frontend (static bundle or container).
+- PostgreSQL as the primary database.
+- An Ollama server (local, container, or remote cluster service).
 
-The backend Docker image is defined in [`Dockerfile`](file:///Users/albertohernandez/Documents/projects/ks-ollama/Dockerfile):
-- Multi‑stage build:
+### 6.1 Runtime artefacts and versions
+
+- **Backend image** – defined in [`Dockerfile`](file:s-ollama/Dockerfile):
   - Build stage: `python:3.11-slim`, installs `requirements.txt` and builds wheels into `/wheels`.
-  - Runtime stage: `gcr.io/distroless/python3-debian12:nonroot` for a minimal, non‑root container.
-- Runtime configuration:
-  - `WORKDIR /app`
-  - `ENV PYTHONUNBUFFERED=1`
-  - `ENV PYTHONPATH=/app`
-  - `EXPOSE 8080`
-  - Entrypoint: `python -m gunicorn -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8080 app.main:app`
+  - Runtime stage: `gcr.io/distroless/python3-debian12:nonroot` for a minimal non‑root container.
+  - Entrypoint: Gunicorn with Uvicorn worker binding `0.0.0.0:8080` and running `app.main:app`.
+- **Backend runtime**:
+  - Python: 3.11.x
+  - Web server: Gunicorn 21.x + Uvicorn 0.32.x
+  - Frameworks: FastAPI 0.115.x, SQLAlchemy 2.x, Alembic 1.13.x
+- **Frontend**:
+  - Node.js: 20.x
+  - Tooling: Vite, React, TypeScript.
+- **Database**:
+  - PostgreSQL 15 (tested); any 13+ should work if configured correctly.
+- **Ollama**:
+  - Ollama server reachable over HTTP.
+  - At least one chat and one embeddings model pulled.
 
-This image is suitable for Kubernetes, Cloud Run or any container‑native platform.
+### 6.2 Configuration matrix (environment variables)
 
-### 6.2 Development Compose (`docker-compose.dev.yml`)
+The backend uses `Settings` in [`app/config.py`](file:///Users/albertohernandez/Documents/projects/ks-ollama/app/config.py#L4-L26). The key variables are:
 
-[`docker-compose.dev.yml`](file:///Users/albertohernandez/Documents/projects/ks-ollama/docker-compose.dev.yml) defines:
-- `db` – PostgreSQL 15 with local volume `db_data`.  
-- `app` – Backend built from the local `Dockerfile`, configured with:
-  - `ENVIRONMENT=local`
-  - Database environment pointing at `db`
-  - `JWT_SECRET=dev-secret`
-- `frontend` – Node 20 container, maps the repository as a volume:
-  - Installs dependencies (`npm i`) and runs `npm run dev` on a configurable port.
-  - Takes `VITE_API_BASE` to know where the backend is.
+| Variable                    | Description                                           | Default (dev)                            | Required in prod |
+|-----------------------------|-------------------------------------------------------|------------------------------------------|------------------|
+| `ENVIRONMENT`              | `local` or `prod`                                    | `local`                                  | Yes              |
+| `DB_USER`                  | Database user                                        | `app`                                    | Yes              |
+| `DB_PASSWORD`              | Database password                                    | `app`                                    | Yes              |
+| `DB_HOST`                  | Database host                                        | `localhost` (or `db` in Compose)         | Yes              |
+| `DB_PORT`                  | Database port                                        | `5432`                                   | Yes              |
+| `DB_NAME`                  | Database name                                        | `app`                                    | Yes              |
+| `JWT_SECRET`               | Symmetric JWT signing key                            | `change-me`                              | Yes (strong)     |
+| `JWT_ALG`                  | JWT algorithm                                        | `HS256`                                  | Optional         |
+| `RATE_LIMIT_PER_MINUTE`    | Per‑user rate limit                                  | `60`                                     | Optional         |
+| `OLLAMA_BASE_URL`          | Base URL for Ollama server                           | empty (see below)                        | Recommended      |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Initial admin password for seeding                   | random or `"admin"` in dev               | Recommended      |
+| `ADMIN_BOOTSTRAP_PASSWORD_FORCE` | Force reset admin password                   | unset (dev runner sets to `"1"`)         | Optional         |
 
-Use this file for local development where you want everything inside Docker.
+`settings.resolved_ollama_base_url()` resolves `OLLAMA_BASE_URL` as follows:
+- If set explicitly → use the given URL.
+- If `ENVIRONMENT=prod` and unset → default `http://ollama.default.svc.cluster.local:11434`.
+- Otherwise → `http://localhost:11434`.
 
-### 6.3 Production Compose (`docker-compose.prod.yml`)
+Frontend configuration:
+- `VITE_API_BASE` – **mandatory in non‑local environments** so that the frontend knows which backend URL to call.
+  - Example: `https://ks-ollama-be-1234.a.run.app`.
+
+Example `.env` template for a production‑like environment:
+
+```bash
+ENVIRONMENT=prod
+DB_USER=app
+DB_PASSWORD=change-me-in-secret-manager
+DB_HOST=10.10.0.5
+DB_PORT=5432
+DB_NAME=app
+JWT_SECRET=change-me-to-strong-random
+RATE_LIMIT_PER_MINUTE=120
+OLLAMA_BASE_URL=http://ollama.default.svc.cluster.local:11434
+ADMIN_BOOTSTRAP_PASSWORD_FORCE=1
+ADMIN_BOOTSTRAP_PASSWORD=admin
+```
+
+### 6.3 Pre‑deployment validation checklist
+
+Before deploying to any environment:
+
+- **Code and tests**
+  - [ ] `make dev-install`
+  - [ ] `make lint`
+  - [ ] `make test`
+  - [ ] `cd frontend && npm install && npm test`
+
+- **Database**
+  - [ ] PostgreSQL instance is provisioned and reachable.
+  - [ ] Database user and password created with least privileges.
+  - [ ] Network access restricted to the application.
+
+- **Ollama**
+  - [ ] Ollama server is reachable from the backend host.
+  - [ ] At least one chat model and one embeddings model are pulled.
+
+- **Secrets and environment**
+  - [ ] `JWT_SECRET` stored in a secret manager and passed to the backend.
+  - [ ] `DB_*` variables reflect the production database.
+  - [ ] `OLLAMA_BASE_URL` set correctly, or Kubernetes default reachable.
+  - [ ] `VITE_API_BASE` set to the backend URL before building the frontend.
+
+- **CI artefacts**
+  - [ ] Backend image built and tagged (for example `user-management-api:<git-sha>`).
+  - [ ] Frontend static bundle produced and stored (for example in an artefact store or container image).
+
+### 6.4 Deployment targets and commands
+
+#### 6.4.1 Local / developer Docker Compose
+
+Use `docker-compose.dev.yml` for a full local stack:
+
+- Services:
+  - `db`: PostgreSQL 15 with local volume `db_data`.
+  - `app`: backend built from `Dockerfile` with `ENVIRONMENT=local` and `JWT_SECRET=dev-secret`.
+  - `frontend`: Node 20 container running `npm run dev`.
+- Configuration:
+  - `VITE_API_BASE` defaults to `http://localhost:8080` but can be overridden.
+
+Command:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+This exposes:
+- API at http://localhost:8080
+- Frontend at http://localhost:5173
+
+#### 6.4.2 Single‑node Docker / bare metal
+
+On a single VM or bare‑metal host, you can run the backend and Postgres via the production Compose file:
 
 [`docker-compose.prod.yml`](file:///Users/albertohernandez/Documents/projects/ks-ollama/docker-compose.prod.yml) defines:
-- `db` – PostgreSQL 15 with persistent volume.  
-- `app` – Uses a pre‑built image `user-management-api:latest` and configures:
+- `db` – PostgreSQL 15 with persistent volume `db_data`.
+- `app` – backend image `user-management-api:latest` with:
   - `ENVIRONMENT=prod`
-  - `DB_*` pointing at the `db` service
-  - `JWT_SECRET=change-me` (must be overridden in real deployments)
-  - `OLLAMA_BASE_URL=http://ollama.default.svc.cluster.local:11434` (override as appropriate)
+  - `DB_*` pointing at `db`
+  - `JWT_SECRET=change-me` (override)
+  - `OLLAMA_BASE_URL` pointing at your Ollama service.
 
-To run:
+Build and start:
 
 ```bash
 docker build -t user-management-api:latest .
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-In production, you will typically:
-- Replace `user-management-api:latest` with a CI‑built, signed image tag.  
-- Override `JWT_SECRET`, `OLLAMA_BASE_URL`, and database credentials via environment or a secrets manager.  
-- Configure a VPC connector or networking to reach your Ollama deployment if it is running in a separate cluster.
+Override secrets and configuration either by:
+- Providing a `.env` file referenced by Compose.
+- Using `docker compose --env-file prod.env -f docker-compose.prod.yml up -d`.
+
+For the frontend:
+- Build the static bundle:
+
+  ```bash
+  cd frontend
+  VITE_API_BASE="https://your-backend.example.com" npm run build
+  ```
+
+- Serve `frontend/dist` using Nginx, Caddy, or any static file server.
+
+#### 6.4.3 Kubernetes (generic example)
+
+This repository does not ship Kubernetes manifests, but the backend image is designed to run on any Kubernetes cluster.
+
+Example `Deployment` and `Service` snippet:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-management-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-management-api
+  template:
+    metadata:
+      labels:
+        app: user-management-api
+    spec:
+      containers:
+        - name: api
+          image: gcr.io/your-project/user-management-api:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ENVIRONMENT
+              value: "prod"
+            - name: DB_HOST
+              value: "postgresql"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "app"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: user-management-secrets
+                  key: db_user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: user-management-secrets
+                  key: db_password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: user-management-secrets
+                  key: jwt_secret
+            - name: OLLAMA_BASE_URL
+              value: "http://ollama:11434"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-management-api
+spec:
+  selector:
+    app: user-management-api
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+The frontend bundle can be served by:
+- A separate Nginx/Ingress controller.
+- A static hosting service, with `VITE_API_BASE` pointing to the API service’s external URL.
+
+#### 6.4.4 Cloud Run (GCP example)
+
+For Cloud Run, you deploy the backend image and set environment variables:
+
+```bash
+gcloud run deploy user-management-api \
+  --image=gcr.io/your-project/user-management-api:latest \
+  --platform=managed \
+  --region=YOUR_REGION \
+  --allow-unauthenticated \
+  --set-env-vars=ENVIRONMENT=prod,DB_HOST=your-db-host,DB_PORT=5432,DB_NAME=app \
+  --set-env-vars=DB_USER=app,DB_PASSWORD=from-secret,JWT_SECRET=from-secret \
+  --set-env-vars=OLLAMA_BASE_URL=http://ollama.default.svc.cluster.local:11434
+```
+
+Frontend options:
+- Build the static site with `VITE_API_BASE` set to the backend Cloud Run URL.
+- Host the static files on:
+  - Another Cloud Run service running a simple static server, or
+  - Cloud Storage + Cloud CDN, or
+  - Any other static hosting provider.
+
+Ensure CORS is configured appropriately in `app/main.py` if the frontend is served from a different origin.
+
+### 6.5 Post‑deployment verification
+
+After deploying any environment:
+
+- **Health checks**
+  - `GET /healthz` → `{"status":"ok"}`.
+  - `GET /readyz` → `{"status":"ready"}`.
+
+- **Admin login**
+  - Use `admin@example.com` and the bootstrap password from:
+    - `BOOTSTRAP_ADMIN_PASSWORD` logs, or
+    - The configured `ADMIN_BOOTSTRAP_PASSWORD`.
+  - Verify:
+    - Sign‑in works.
+    - Admin sidebar shows all panels.
+
+- **Ollama integration**
+  - From the Ollama chat panel, send a trivial prompt.
+  - From the Embeddings panel, generate embeddings and confirm no errors.
+
+- **Audit and credentials**
+  - Issue an API key via the Admin panel and confirm:
+    - One‑time secret is displayed.
+    - Audit log contains `api_key_issued`.
+
+### 6.6 Monitoring, logging and health checks
+
+- **Metrics**
+  - Prometheus metrics are exposed by `prometheus-fastapi-instrumentator` at the default `/metrics` path.
+  - Scrape this endpoint from your Prometheus or OpenTelemetry collector.
+
+- **Logs**
+  - Backend uses `structlog`; log output is structured JSON by default (depending on configuration).
+  - Aggregate logs using Cloud Logging, ELK, or any log management platform.
+  - Index on `path`, `status`, and `user_id` for troubleshooting auth issues.
+
+- **Health endpoints**
+  - Liveness: `/healthz`
+  - Readiness: `/readyz`
+  - Configure your orchestrator (Kubernetes, Cloud Run, Docker health checks) to use these endpoints.
+
+### 6.7 Scaling and performance considerations
+
+- **Horizontal scaling**
+  - Backend is stateless; multiple replicas are supported.
+  - Ensure all replicas share the same PostgreSQL database and Ollama cluster.
+
+- **Database**
+  - Use connection pooling at the database layer (for example PgBouncer) if you run many replicas.
+  - Monitor query performance and add indexes as necessary.
+
+- **Rate limiting**
+  - `RATE_LIMIT_PER_MINUTE` controls per‑user rate limits.
+  - Adjust per environment based on your SLOs and Ollama capacity.
+
+- **Load testing**
+  - Use `locust` (see `perf/locustfile.py`) against a staging environment before increasing traffic in production.
+
+### 6.8 Security hardening and CORS
+
+- **Secrets**
+  - Store all secrets (`JWT_SECRET`, `DB_PASSWORD`, `ADMIN_BOOTSTRAP_PASSWORD`, API keys) in a secret manager.
+  - Never bake secrets into images or commit them to version control.
+
+- **Transport security**
+  - Terminate TLS at your load balancer, ingress, or Cloud Run.
+  - Enforce HTTPS for all user‑facing endpoints.
+
+- **CORS**
+  - `app/main.py` configures CORS for local development (`localhost` and `127.0.0.1`).
+  - In production, if the frontend is served from a different origin, update CORS settings to allow your real frontend domain(s).
+
+- **Admin access**
+  - Restrict `admin` role to a small set of trusted operators.
+  - Use the Audit log for periodic reviews of authentication and credential events.
+
+### 6.9 Rollback strategy (high level)
+
+See [`doc/OPERATIONS.md`](file:///Users/albertohernandez/Documents/projects/ks-ollama/doc/OPERATIONS.md) for full details. At a high level:
+
+- **Images**
+  - Use immutable tags (for example `user-management-api:<git-sha>`).
+  - Roll back by redeploying the previous known‑good tag.
+
+- **Database schema**
+  - Alembic supports downgrade operations; only use them if you understand the data impact.
+  - Prefer forward‑only fixes plus feature flags for most incidents.
+
+- **Configuration**
+  - Track configuration changes (ConfigMaps, environment, secrets) in version control where possible.
+  - For emergency rollbacks, roll back both image and configuration to the last known‑good combination.
 
 ---
 
