@@ -420,16 +420,16 @@ Audit log access is restricted to admin users and should be treated as sensitive
 
 ---
 
-## 5. Deployment Guide
+## 6. Deployment Guide
 
-### 5.1 Build the Production Image
+### 6.1 Build the Production Image
 The Dockerfile is optimized for production (based on `python:3.11-slim`) and includes an entrypoint script that handles database migrations and seeding automatically.
 
 ```bash
 docker build -t user-management-api:latest .
 ```
 
-### 5.2 Environment Configuration
+### 6.2 Environment Configuration
 Refer to `.env.example` for the complete list of environment variables.
 **Critical variables for production:**
 - `ENVIRONMENT=prod`
@@ -437,14 +437,16 @@ Refer to `.env.example` for the complete list of environment variables.
 - `DB_HOST`, `DB_USER`, `DB_PASSWORD`: Connection details for your production PostgreSQL.
 - `OLLAMA_BASE_URL`: URL of your internal Ollama service (e.g., `http://ollama-service:11434`).
 
-### 5.3 Running with Docker Compose
+> **Important:** The application expects the PostgreSQL database (defined by `DB_NAME`, default `app`) to **already exist**. The container will automatically create the tables (schema) and seed initial data, but it will **not** create the database itself. Ensure your Terraform or DBA has provisioned the database instance and name before deployment.
+
+### 6.3 Running with Docker Compose
 Use the production compose file as a reference or for single-node deployments:
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-### 5.4 Kubernetes / Cloud Run
+### 6.4 Kubernetes / Cloud Run
 1. **Push** the image to your container registry.
 2. **Configure** the environment variables (Secrets/ConfigMaps).
 3. **Deploy**. The container will automatically:
@@ -453,7 +455,7 @@ docker compose -f docker-compose.prod.yml up -d
    - Seed essential data (admin role, initial admin user).
    - Start the Gunicorn server.
 
-### 5.5 Verification
+### 6.5 Verification
 Check the logs for the bootstrap admin credentials (if `ADMIN_BOOTSTRAP_PASSWORD` was not set) and verify the health endpoint:
 ```bash
 curl http://your-domain/healthz
