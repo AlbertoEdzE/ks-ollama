@@ -56,6 +56,7 @@ def validate_env(env_name: str):
         "DB_PORT": "5432",
         "DB_NAME": "app",
         "JWT_SECRET": "dev-secret" if env_name == "dev" else os.getenv("JWT_SECRET", ""),
+        "ADMIN_BOOTSTRAP_PASSWORD": "admin" if env_name == "dev" else os.getenv("ADMIN_BOOTSTRAP_PASSWORD", ""),
     }
     for k, v in defaults.items():
         os.environ.setdefault(k, v)

@@ -49,3 +49,71 @@ def test_create_get_user():
     uid = r.json()["id"]
     r2 = client.get(f"/users/{uid}", headers=AUTH_HEADERS)
     assert r2.status_code == 200
+
+def test_list_users():
+    r = client.get("/users?limit=10&offset=0", headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+def test_create_duplicate_user():
+    # Setup - ensure user exists
+    client.post("/users", json={"email": "dup@example.com", "display_name": "Dup"}, headers=AUTH_HEADERS)
+    
+    # Test duplicate
+    r = client.post("/users", json={"email": "dup@example.com", "display_name": "Dup"}, headers=AUTH_HEADERS)
+    assert r.status_code == 400
+    assert "User exists" in r.json()["detail"]
+
+def test_get_user_not_found():
+    r = client.get("/users/99999", headers=AUTH_HEADERS)
+    assert r.status_code == 404
+
+def test_set_user_password():
+    # Create user
+    r = client.post("/users", json={"email": "pwd@example.com", "display_name": "Pwd"}, headers=AUTH_HEADERS)
+    uid = r.json()["id"]
+    
+    # Set password
+    r = client.post(f"/users/{uid}/password", json={"password": "newpass"}, headers=AUTH_HEADERS)
+    assert r.status_code == 204
+    
+    # Verify login
+    r = client.post("/auth/login", json={"username": "pwd@example.com", "password": "newpass"})
+    assert r.status_code == 200
+
+def test_set_user_password_validation():
+    r = client.post("/users/1/password", json={"password": "123"}, headers=AUTH_HEADERS)
+    assert r.status_code == 400
+
+def test_update_user():
+    # Create user
+    r = client.post("/users", json={"email": "upd@example.com", "display_name": "Upd"}, headers=AUTH_HEADERS)
+    uid = r.json()["id"]
+    
+    # Update
+    r = client.patch(f"/users/{uid}", json={"display_name": "Updated", "roles": ["admin"]}, headers=AUTH_HEADERS)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["display_name"] == "Updated"
+    assert "admin" in data["roles"]
+
+def test_update_user_not_found():
+    r = client.patch("/users/99999", json={"display_name": "Upd"}, headers=AUTH_HEADERS)
+    assert r.status_code == 404
+
+def test_delete_user():
+    # Create user
+    r = client.post("/users", json={"email": "del@example.com", "display_name": "Del"}, headers=AUTH_HEADERS)
+    uid = r.json()["id"]
+    
+    # Delete
+    r = client.delete(f"/users/{uid}", headers=AUTH_HEADERS)
+    assert r.status_code == 204
+    
+    # Verify deleted
+    r = client.get(f"/users/{uid}", headers=AUTH_HEADERS)
+    assert r.status_code == 404
+
+def test_delete_user_not_found():
+    r = client.delete("/users/99999", headers=AUTH_HEADERS)
+    assert r.status_code == 404

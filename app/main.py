@@ -51,7 +51,19 @@ def healthz():
 
 @app.get("/readyz")
 def readyz():
-    return {"status": "ready"}
+    try:
+        # Check database connection
+        from sqlalchemy import text
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+        finally:
+            db.close()
+        return {"status": "ready"}
+    except Exception as e:
+        logger.error("readiness_check_failed", error=str(e))
+        return Response(content="Database unavailable", status_code=503)
 
 
 app.include_router(users.router, prefix="/users", tags=["users"])

@@ -29,6 +29,7 @@ make dev-install  # create .venv and install runtime + dev requirements
 ## 2. Configuration and Environment
 
 The backend configuration is driven by environment variables and wrapped in [`app.config.Settings`](file:///Users/albertohernandez/Documents/projects/ks-ollama/app/config.py#L4-L15).
+See `.env.example` for a complete list of supported variables.
 
 ### 2.1 Core environment variables
 
@@ -561,6 +562,12 @@ docker build -t user-management-api:latest .
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+The production image includes an entrypoint script that automatically:
+1. Waits for the database to be ready.
+2. Runs database migrations (`alembic upgrade head`).
+3. Seeds initial data (admin user, roles).
+4. Starts the application with Gunicorn.
+
 Override secrets and configuration either by:
 - Providing a `.env` file referenced by Compose.
 - Using `docker compose --env-file prod.env -f docker-compose.prod.yml up -d`.
@@ -668,7 +675,49 @@ Frontend options:
 
 Ensure CORS is configured appropriately in `app/main.py` if the frontend is served from a different origin.
 
-### 6.5 Post‑deployment verification
+### 6.5 First‑time Setup: Database Initialization (Critical)
+
+After deploying the backend and database for the first time, the database will be empty. The application **will not work** until you initialise the schema and create the default admin user.
+
+**Symptoms of skipping this step:**
+- Backend logs show database connection errors or "relation does not exist".
+- Login requests fail (frontend receives 500 or network error).
+- The application appears "empty".
+
+**Procedure:**
+
+1. **Verify Database Connection**:
+   Ensure the backend container can reach the database. The new `/readyz` endpoint checks this connection.
+   ```bash
+   curl http://<backend-host>:8080/readyz
+   # Should return {"status": "ready"}
+   # If 503, check DB_HOST, DB_PORT, DB_USER, DB_PASSWORD environment variables.
+   ```
+
+2. **Run the Initialization Script**:
+   Execute the seeding module inside the running backend container.
+
+   **Docker / Compose:**
+   ```bash
+   docker exec -it <container-id> python -m app.db.seed
+   ```
+
+   **Kubernetes:**
+   ```bash
+   kubectl exec -it <pod-name> -- python -m app.db.seed
+   ```
+
+3. **Capture Credentials**:
+   The script will output the initial admin credentials to stdout. **Save these immediately.**
+   ```text
+   BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+   BOOTSTRAP_ADMIN_PASSWORD=<random-generated-password>
+   BOOTSTRAP_ADMIN_API_KEY=<random-generated-key>
+   ```
+   
+   *Note: You can pre-define the password by setting `ADMIN_BOOTSTRAP_PASSWORD` environment variable before running the script.*
+
+### 6.6 Post‑deployment verification
 
 After deploying any environment:
 
@@ -693,7 +742,7 @@ After deploying any environment:
     - One‑time secret is displayed.
     - Audit log contains `api_key_issued`.
 
-### 6.6 Monitoring, logging and health checks
+### 6.7 Monitoring, logging and health checks
 
 - **Metrics**
   - Prometheus metrics are exposed by `prometheus-fastapi-instrumentator` at the default `/metrics` path.
@@ -709,7 +758,7 @@ After deploying any environment:
   - Readiness: `/readyz`
   - Configure your orchestrator (Kubernetes, Cloud Run, Docker health checks) to use these endpoints.
 
-### 6.7 Scaling and performance considerations
+### 6.8 Scaling and performance considerations
 
 - **Horizontal scaling**
   - Backend is stateless; multiple replicas are supported.
@@ -726,7 +775,7 @@ After deploying any environment:
 - **Load testing**
   - Use `locust` (see `perf/locustfile.py`) against a staging environment before increasing traffic in production.
 
-### 6.8 Security hardening and CORS
+### 6.9 Security hardening and CORS
 
 - **Secrets**
   - Store all secrets (`JWT_SECRET`, `DB_PASSWORD`, `ADMIN_BOOTSTRAP_PASSWORD`, API keys) in a secret manager.
@@ -744,7 +793,7 @@ After deploying any environment:
   - Restrict `admin` role to a small set of trusted operators.
   - Use the Audit log for periodic reviews of authentication and credential events.
 
-### 6.9 Rollback strategy (high level)
+### 6.10 Rollback strategy (high level)
 
 See [`doc/OPERATIONS.md`](file:///Users/albertohernandez/Documents/projects/ks-ollama/doc/OPERATIONS.md) for full details. At a high level:
 
